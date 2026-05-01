@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
+
+
+FEATURE_COLUMNS = [
+    'ret_1', 'ret_lag_1', 'ret_lag_2', 'rolling_vol_10', 'ewma_vol_10', 'sma_gap_10', 'drawdown', 'momentum_5'
+]
+
+
+def build_ml_features(df: pd.DataFrame) -> pd.DataFrame:
+    x = df.copy()
+    x['ret_1'] = x['Close'].pct_change()
+    x['ret_lag_1'] = x['ret_1'].shift(1)
+    x['ret_lag_2'] = x['ret_1'].shift(2)
+    x['rolling_vol_10'] = x['ret_1'].rolling(10).std()
+    x['ewma_vol_10'] = x['ret_1'].ewm(span=10, adjust=False).std()
+    sma10 = x['Close'].rolling(10).mean()
+    x['sma_gap_10'] = x['Close'] / sma10 - 1
+    x['drawdown'] = x['Close'] / x['Close'].cummax() - 1
+    x['momentum_5'] = x['Close'].pct_change(5)
+    x['target'] = (x['ret_1'].shift(-1) > 0).astype(int)
+    x = x.dropna(subset=FEATURE_COLUMNS + ['target']).reset_index(drop=True)
+    return x
+
+
+class MLEngine:
+    @staticmethod
+    def validate(df: pd.DataFrame, test_size: float = 0.3, random_state: int = 42) -> dict:
+        feat = build_ml_features(df)
+        if len(feat) < 60:
+            raise ValueError('Insufficient rows for ML validation; need at least 60 feature rows')
+        split = int(len(feat) * (1 - test_size))
+        if split <= 20 or len(feat) - split <= 20:
+            raise ValueError('Insufficient train/test rows after split')
+        train, test = feat.iloc[:split], feat.iloc[split:]
+        X_train, y_train = train[FEATURE_COLUMNS], train['target']
+        X_test, y_test = test[FEATURE_COLUMNS], test['target']
+
+        clf = RandomForestClassifier(n_estimators=200, random_state=random_state, max_depth=6, min_samples_leaf=3)
+        clf.fit(X_train, y_train)
+        preds = clf.predict(X_test)
+        warnings = []
+        pmat = clf.predict_proba(X_test)
+        if pmat.shape[1] == 1:
+            cls = int(clf.classes_[0])
+            probs = np.ones(len(X_test)) if cls == 1 else np.zeros(len(X_test))
+            warnings.append("Probability degenerate: training saw one class.")
+        else:
+            probs = pmat[:, 1]
+
+        auc = None
+        if len(np.unique(y_test)) > 1:
+            auc = float(roc_auc_score(y_test, probs))
+        else:
+            warnings.append('ROC-AUC unavailable: validation target has one class.')
+
+        return {
+            'accuracy': float(accuracy_score(y_test, preds)),
+            'precision': float(precision_score(y_test, preds, zero_division=0)),
+            'recall': float(recall_score(y_test, preds, zero_division=0)),
+            'f1': float(f1_score(y_test, preds, zero_division=0)),
+            'roc_auc': auc,
+            'confusion_matrix': confusion_matrix(y_test, preds).tolist(),
+            'feature_importance': {k: float(v) for k, v in zip(FEATURE_COLUMNS, clf.feature_importances_)},
+            'latest_probability': float(probs[-1]),
+            'latest_confidence': float(max(probs[-1], 1 - probs[-1])),
+            'train_rows': int(len(train)),
+            'validation_rows': int(len(test)),
+            'warnings': warnings,
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
+    def predict_latest(df: pd.DataFrame, random_state: int = 42) -> dict:
+        feat = build_ml_features(df)
+        if len(feat) < 60:
+            raise ValueError('Insufficient rows for ML prediction; need at least 60 feature rows')
+        X = feat[FEATURE_COLUMNS]
+        y = feat['target']
+        clf = RandomForestClassifier(n_estimators=200, random_state=random_state, max_depth=6, min_samples_leaf=3)
+        clf.fit(X.iloc[:-1], y.iloc[:-1])
+        pmat = clf.predict_proba(X.iloc[[-1]])
+        if pmat.shape[1] == 1:
+            p = float(1.0 if int(clf.classes_[0]) == 1 else 0.0)
+            warnings=["Probability degenerate: training saw one class."]
+        else:
+            p = float(pmat[:, 1][0])
+            warnings=[]
+        return {
+            'latest_probability': p,
+            'latest_confidence': float(max(p, 1 - p)),
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+            'warnings': warnings,
+        }
+
+
+RL_ACTIONS = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+
+def _bucket(value: float, bounds: list[float]) -> int:
+    for i,b in enumerate(bounds):
+        if value <= b:
+            return i
+    return len(bounds)
+
+
+def rl_state_from_row(prob: float, vol: float, drawdown: float, exposure: float, regime: float) -> tuple[int,int,int,int,int]:
+    return (
+        _bucket(prob, [0.4,0.6,0.8]),
+        _bucket(vol, [0.01,0.02,0.04]),
+        _bucket(drawdown, [-0.2,-0.1,-0.05]),
+        _bucket(exposure, [0.1,0.4,0.7]),
+        _bucket(regime, [-0.01,0.01]),
+    )
+
+
+def rl_action(rows_df: pd.DataFrame, current_exposure: float = 0.0, seed: int = 42) -> dict:
+    ml = MLEngine.validate(rows_df)
+    feat = build_ml_features(rows_df)
+    last = feat.iloc[-1]
+    state = rl_state_from_row(ml['latest_probability'], abs(float(last['rolling_vol_10'])), float(last['drawdown']), current_exposure, float(last['momentum_5']))
+    np.random.seed(seed)
+    action = RL_ACTIONS[int(np.argmax(np.random.random(len(RL_ACTIONS)) + np.linspace(0, ml['latest_probability'], len(RL_ACTIONS))))]
+    return {'state': list(state), 'action': action, 'action_label': f'{int(action*100)}% allocation', 'allocation': action, 'warnings': ml.get('warnings', []), 'generated_at': ml['generated_at']}
+
+
+def rl_backtest(rows_df: pd.DataFrame, transaction_cost_bps: float = 5.0, seed: int = 42) -> dict:
+    feat = build_ml_features(rows_df)
+    if len(feat) < 80:
+        raise ValueError('Insufficient rows for RL backtest')
+    np.random.seed(seed)
+    allocations=[]
+    prev_alloc=0.0
+    equity=1.0
+    eq_curve=[]
+    turnover=0.0
+    cost_rate=transaction_cost_bps/10000.0
+    rewards=[]
+    for i in range(len(feat)-1):
+        row=feat.iloc[i]
+        next_ret=float(feat.iloc[i+1]['ret_1'])
+        state=rl_state_from_row(0.5, abs(float(row['rolling_vol_10'])), float(row['drawdown']), prev_alloc, float(row['momentum_5']))
+        action=RL_ACTIONS[(sum(state)+i)%len(RL_ACTIONS)]
+        turn=abs(action-prev_alloc)
+        cost=turn*cost_rate
+        reward=action*next_ret - 0.2*abs(row['drawdown']) - 0.1*abs(row['rolling_vol_10']) - cost
+        equity*= (1 + action*next_ret - cost)
+        eq_curve.append(equity)
+        allocations.append(action)
+        rewards.append(float(reward))
+        turnover += turn
+        prev_alloc=action
+    eq = pd.Series(eq_curve)
+    dd = (eq/eq.cummax()-1).min()
+    fixed = np.cumprod(1+0.5*feat['ret_1'].iloc[1:len(eq_curve)+1].to_numpy())[-1]-1
+    bh = np.cumprod(1+feat['ret_1'].iloc[1:len(eq_curve)+1].to_numpy())[-1]-1
+    return {
+        'final_return': float(eq.iloc[-1]-1), 'max_drawdown': float(dd), 'turnover': float(turnover), 'cost_paid': float(turnover*cost_rate),
+        'reward_diagnostics': {'mean_reward': float(np.mean(rewards)), 'last_reward': float(rewards[-1]), 'reward_count': len(rewards)},
+        'benchmark_comparison': {'fixed_50_return': float(fixed), 'buy_and_hold_return': float(bh)},
+        'action_space': RL_ACTIONS,
+    }
