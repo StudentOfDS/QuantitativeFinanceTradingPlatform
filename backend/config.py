@@ -22,12 +22,6 @@ class Settings(BaseSettings):
     enable_arch: bool = False
 
     enable_live_trading: bool = False
-
-    trading_mode: str = "paper"
-    dry_run: bool = True
-    broker_api_key: str = ""
-    broker_api_secret: str = ""
-    broker_endpoint: str = ""
     require_live_trading_confirmation: bool = True
     max_order_notional: float = 10000
     max_gross_exposure: float = 100000
