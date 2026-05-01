@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pandas
+openpyxl
+pydantic-settings
+python-multipart
+pytest
+httpx
+yfinance
