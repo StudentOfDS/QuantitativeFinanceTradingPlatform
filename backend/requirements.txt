@@ -7,4 +7,3 @@ python-multipart
 pytest
 httpx
 yfinance
-sqlalchemy

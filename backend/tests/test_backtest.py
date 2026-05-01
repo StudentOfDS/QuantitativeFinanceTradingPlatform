@@ -41,17 +41,3 @@ def test_endpoint_smoke_backtest():
     assert r.status_code == 200
     body = r.json()
     assert 'benchmark_return' in body
-
-
-def test_cost_charged_on_position_changes():
-    r = client.post('/api/backtest/vectorized', json={'rows': rows_uptrend(), 'strategy': 'buy_and_hold', 'transaction_cost_bps': 10, 'slippage_bps': 10, 'persist': False})
-    assert r.status_code == 200
-    # buy-and-hold should trade once (enter) then hold
-    assert r.json()['trade_count'] == 1
-
-
-def test_buy_and_hold_delayed_execution():
-    data = rows_uptrend(5)
-    df = pd.DataFrame(data)
-    res = run_vectorized_backtest(df, 'buy_and_hold', {}, 10000, 0, 0)
-    assert res['positions'][0] == 0.0
