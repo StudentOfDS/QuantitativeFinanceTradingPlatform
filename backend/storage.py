@@ -26,15 +26,6 @@ class BacktestRun(Base):
     payload_json = Column(Text, nullable=False)
 
 
-
-
-class ModelValidation(Base):
-    __tablename__ = 'model_validations'
-    id = Column(Integer, primary_key=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    payload_json = Column(Text, nullable=False)
-
-
 class AuditEvent(Base):
     __tablename__ = 'audit_events'
     id = Column(Integer, primary_key=True)
@@ -66,15 +57,6 @@ def record_backtest_run(payload: dict) -> int:
 def record_audit_event(event_type: str, payload: dict) -> int:
     with Session(engine) as session, session.begin():
         row = AuditEvent(event_type=event_type, payload_json=json.dumps(payload, default=str))
-        session.add(row)
-        session.flush()
-        return int(row.id)
-
-
-
-def record_model_validation(payload: dict) -> int:
-    with Session(engine) as session, session.begin():
-        row = ModelValidation(payload_json=json.dumps(payload, default=str))
         session.add(row)
         session.flush()
         return int(row.id)
