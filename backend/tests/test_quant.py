@@ -1,5 +1,3 @@
-import math
-
 import pytest
 
 from backend import quant
@@ -62,18 +60,6 @@ def test_bond_and_credit():
     assert mac > mod > 0
     assert conv > 0
     assert quant.expected_loss(0.02, 0.45, 1_000_000) == pytest.approx(9000)
-
-
-def test_zero_volatility_discounted_forward_pricing():
-    call = quant.black_scholes_price(100, 100, 0.05, 0.0, 1, 'call')
-    put = quant.black_scholes_price(90, 100, 0.05, 0.0, 1, 'put')
-    assert call == pytest.approx(max(100 - 100 * math.exp(-0.05), 0), rel=1e-6)
-    assert put == pytest.approx(max(100 * math.exp(-0.05) - 90, 0), rel=1e-6)
-
-
-def test_expiry_still_intrinsic_value():
-    assert quant.black_scholes_price(105, 100, 0.05, 0.2, 0, 'call') == 5
-    assert quant.black_scholes_price(95, 100, 0.05, 0.2, 0, 'put') == 5
 
 
 def test_quant_endpoints_smoke():

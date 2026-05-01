@@ -171,13 +171,9 @@ def _d1_d2(spot: float, strike: float, rate: float, volatility: float, maturity:
 def black_scholes_price(spot: float, strike: float, rate: float, volatility: float, maturity: float, option_type: str) -> float:
     if option_type not in {"call", "put"}:
         raise ValueError("option_type must be 'call' or 'put'")
-    if maturity == 0:
+    if maturity == 0 or volatility == 0:
         intrinsic = max(spot - strike, 0.0) if option_type == "call" else max(strike - spot, 0.0)
         return float(intrinsic)
-    if volatility == 0:
-        discounted_strike = strike * math.exp(-rate * maturity)
-        deterministic = max(spot - discounted_strike, 0.0) if option_type == "call" else max(discounted_strike - spot, 0.0)
-        return float(deterministic)
     d1, d2 = _d1_d2(spot, strike, rate, volatility, maturity)
     n = NormalDist()
     disc_k = strike * math.exp(-rate * maturity)
