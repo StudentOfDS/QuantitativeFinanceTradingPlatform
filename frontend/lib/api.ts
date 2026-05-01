@@ -12,13 +12,3 @@ export async function postManualData(rows: Record<string, unknown>[]) {
   }
   return resp.json();
 }
-
-export async function runVectorizedBacktest(payload: Record<string, unknown>) {
-  const resp = await fetch(`${API_BASE}/api/backtest/vectorized`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!resp.ok) throw new Error(await resp.text());
-  return resp.json();
-}
