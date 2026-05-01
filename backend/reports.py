@@ -7,10 +7,9 @@ import pandas as pd
 from backend.backtest import run_vectorized_backtest
 from backend.data import DataEngine, InputAdapter
 from backend.quant import cvar_expected_shortfall, historical_var, max_drawdown, parametric_var
-from backend.intelligence import MLEngine, rl_backtest
 
 
-def build_research_report(rows: list[dict], strategy: str, strategy_params: dict, initial_capital: float, transaction_cost_bps: float, slippage_bps: float, include_ml: bool = False, include_rl: bool = False) -> dict:
+def build_research_report(rows: list[dict], strategy: str, strategy_params: dict, initial_capital: float, transaction_cost_bps: float, slippage_bps: float) -> dict:
     df = InputAdapter.from_manual_rows(rows)
     validated = DataEngine.validate(df)
     if not validated.report['valid']:
@@ -32,17 +31,6 @@ def build_research_report(rows: list[dict], strategy: str, strategy_params: dict
         'max_drawdown': max_drawdown(backtest['equity_curve']),
     }
 
-    ml_summary = None
-    if include_ml:
-        ml_summary = MLEngine.validate(clean)
-
-    rl_summary = None
-    if include_rl:
-        try:
-            rl_summary = rl_backtest(clean, transaction_cost_bps=max(transaction_cost_bps, 0.0))
-        except ValueError as exc:
-            rl_summary = {'warnings': [str(exc)]}
-
     report = {
         'metadata': {'strategy': strategy, 'row_count': len(clean)},
         'data_validation': validated.report,
@@ -57,8 +45,4 @@ def build_research_report(rows: list[dict], strategy: str, strategy_params: dict
         'warnings': validated.report.get('warnings', []),
         'generated_at': datetime.now(timezone.utc).isoformat(),
     }
-    if include_ml:
-        report['ml_summary'] = ml_summary
-    if include_rl:
-        report['rl_summary'] = rl_summary
     return report

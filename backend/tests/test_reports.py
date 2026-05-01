@@ -7,9 +7,7 @@ client = TestClient(app)
 
 
 def rows():
-    import pandas as pd
-    dates = pd.date_range("2024-01-01", periods=180, freq="D")
-    return [{"Date": d.strftime("%Y-%m-%d"), "Open": 100+i, "High": 101+i, "Low": 99+i, "Close": 100+i, "Volume": 1000} for i, d in enumerate(dates)]
+    return [{"Date": f"2024-02-{i+1:02d}", "Open": 100+i, "High": 101+i, "Low": 99+i, "Close": 100+i, "Volume": 1000} for i in range(40)]
 
 
 def test_report_sections_present():
@@ -31,15 +29,3 @@ def test_report_persistence_and_history_endpoint():
     h = client.get('/api/history/reports')
     assert h.status_code == 200
     assert len(h.json()['items']) >= 1
-
-
-def test_report_includes_ml_summary_when_requested():
-    r = client.post('/api/report/full', json={'rows': rows(), 'strategy': 'buy_and_hold', 'include_ml': True})
-    assert r.status_code == 200
-    assert 'ml_summary' in r.json()['report']
-
-
-def test_report_includes_rl_summary_when_requested():
-    r = client.post('/api/report/full', json={'rows': rows(), 'strategy': 'buy_and_hold', 'include_rl': True})
-    assert r.status_code == 200
-    assert 'rl_summary' in r.json()['report']
